@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced AI Forensic Detector Pro</title>
+    <style>
+        :root { --bg: #0b1120; --panel: rgba(15, 23, 42, 0.85); --accent: #3b82f6; --alert: #ef4444; --warn: #f59e0b; --safe: #10b981; --text: #f8fafc; }
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        .sidebar { width: 360px; background: var(--panel); backdrop-filter: blur(12px); padding: 20px; display: flex; flex-direction: column; gap: 15px; border-right: 1px solid rgba(255,255,255,0.1); z-index: 10; overflow-y: auto; }
+        h2 { margin: 0; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); }
+        
+        #drop-zone { border: 2px dashed rgba(59, 130, 246, 0.4); border-radius: 8px; padding: 25px 15px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: rgba(0,0,0,0.3); }
+        #drop-zone.dragover { background: rgba(59, 130, 246, 0.15); border-color: var(--accent); }
+        
+        .control-group { display: flex; flex-direction: column; gap: 5px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; }
+        label { font-size: 0.8rem; display: flex; justify-content: space-between; color: #94a3b8; font-weight: 600;}
+        input[type="range"] { accent-color: var(--accent); width: 100%; cursor: pointer; }
+        select, button { background: rgba(0,0,0,0.4); color: white; border: 1px solid rgba(255,255,255,0.1); padding: 6px; border-radius: 4px; outline: none; font-size: 0.85rem;}
+        button { cursor: pointer; background: var(--accent); border: none; font-weight: bold; margin-top: 5px; transition: 0.2s; padding: 10px; }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
+
+        .report-panel { font-size: 0.85rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px; margin-top: auto; }
+        .report-item { display: flex; justify-content: space-between; margin-bottom: 8px; padding: 6px; background: rgba(255,255,255,0.03); border-radius: 4px; }
+        .badge { padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75rem; }
+        .badge.alert { background: rgba(239, 68, 68, 0.2); color: var(--alert); }
+        .badge.safe { background: rgba(16, 185, 129, 0.2); color: var(--safe); }
+        .badge.warn { background: rgba(245, 158, 11, 0.2); color: var(--warn); }
+
+        .main-stage { flex-grow: 1; display: flex; align-items: center; justify-content: center; position: relative; padding: 20px; background: radial-gradient(circle at center, #1e293b 0%, #020617 100%); overflow: hidden;}
+        .canvas-wrapper { position: relative; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); border-radius: 4px; max-width: 100%; max-height: 100%; display: none; cursor: crosshair; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        #canvas-original { position: relative; z-index: 1; pointer-events: auto; } /* Capture mouse events here */
+        #canvas-ela { z-index: 2; opacity: 0; mix-blend-mode: screen; }
+        #canvas-noise { z-index: 3; opacity: 0; mix-blend-mode: screen; }
+        #canvas-chroma { z-index: 4; opacity: 0; mix-blend-mode: screen; }
+        #canvas-grid { z-index: 5; }
+
+        /* Interactive Tooltip */
+        #tooltip { position: absolute; background: rgba(15, 23, 42, 0.95); border: 1px solid var(--accent); padding: 10px; border-radius: 6px; pointer-events: none; display: none; z-index: 100; font-size: 0.8rem; box-shadow: 0 10px 25px rgba(0,0,0,0.5); backdrop-filter: blur(4px); transform: translate(15px, 15px); }
+        .tt-row { display: flex; justify-content: space-between; gap: 15px; margin-bottom: 4px; }
+        .tt-val { font-family: monospace; font-weight: bold; }
+
+        .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; margin-top: 4px; cursor: pointer; color: #cbd5e1;}
+        .toggle-row input { cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>Forensic Engine Pro</h2>
+        <div id="drop-zone">Drag & Drop Image<br><span style="font-size: 0.75em; color: #64748b;">JPEG, PNG, WEBP</span></div>
+        <input type="file" id="file-input" accept="image/jpeg, image/png, image/webp" style="display: none;">
+
+        <div class="control-group">
+            <label>Grid Matrix Size</label>
+            <select id="grid-size">
+                <option value="16">16 x 16 (High Density)</option>
+                <option value="32" selected>32 x 32 (Standard)</option>
+                <option value="64">64 x 64 (Macro Blocks)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Z-Score Threshold (Sensitivity) <span id="val-z">2.0σ</span></label>
+            <input type="range" id="z-threshold" min="0.5" max="5" step="0.1" value="2.0">
+        </div>
+
+        <div class="control-group">
+            <label>Visual Overlays</label>
+            <label class="toggle-row"><input type="checkbox" id="show-ela"> RGB ELA Heatmap</label>
+            <label class="toggle-row"><input type="checkbox" id="show-chroma"> Chroma (CbCr) ELA Map</label>
+            <label class="toggle-row"><input type="checkbox" id="show-noise"> Laplacian PRNU Map</label>
+            <label class="toggle-row"><input type="checkbox" id="show-grid" checked> Z-Score Anomaly Grid</label>
+        </div>
+
+        <button id="btn-analyze" disabled>Execute Deep Scan</button>
+        
+        <div class="report-panel" id="report-panel" style="display: none;">
+            <label style="margin-bottom: 10px; color: var(--text);">GLOBAL DIAGNOSTICS</label>
+            <div class="report-item"><span>File Metadata (EXIF)</span> <span id="rep-exif" class="badge">Checking...</span></div>
+            <div class="report-item"><span>Global Noise Variance</span> <span id="rep-noise" class="badge">Checking...</span></div>
+            <div class="report-item"><span>Grid Anomalies Found</span> <span id="rep-anom" class="badge">0</span></div>
+            <div class="report-item" style="margin-top: 10px; font-weight: bold; background: rgba(255,255,255,0.05);"><span>Verdict</span> <span id="rep-verdict" class="badge">Awaiting Scan</span></div>
+        </div>
+    </div>
+
+    <div class="main-stage">
+        <div class="canvas-wrapper" id="workspace">
+            <canvas id="canvas-original"></canvas>
+            <canvas id="canvas-ela"></canvas>
+            <canvas id="canvas-noise"></canvas>
+            <canvas id="canvas-chroma"></canvas>
+            <canvas id="canvas-grid"></canvas>
+        </div>
+        <div id="tooltip">
+            <div style="border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 4px; margin-bottom: 6px; font-weight: bold; color: var(--accent);">Cell Diagnostics</div>
+            <div class="tt-row"><span>RGB ELA (Z):</span> <span class="tt-val" id="tt-ela">0.00</span></div>
+            <div class="tt-row"><span>Chroma ELA (Z):</span> <span class="tt-val" id="tt-chroma">0.00</span></div>
+            <div class="tt-row"><span>PRNU Noise (Z):</span> <span class="tt-val" id="tt-noise">0.00</span></div>
+            <div class="tt-row"><span>Sobel Grad (Z):</span> <span class="tt-val" id="tt-grad">0.00</span></div>
+            <div class="tt-row" style="margin-top: 6px; color: var(--alert); display: none;" id="tt-warn">⚠️ Statistical Anomaly</div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. WEB WORKER: Advanced Math & YCbCr Conversion ---
+        const workerCode = `
+        self.onmessage = function(e) {
+            const { orig, comp, width, height, gridSize, zThreshold } = e.data;
+            const totalPixels = width * height;
+            
+            // Output Arrays
+            const elaData = new Uint8ClampedArray(totalPixels * 4);
+            const noiseData = new Uint8ClampedArray(totalPixels * 4);
+            const chromaData = new Uint8ClampedArray(totalPixels * 4);
+            
+            const rawEla = new Float32Array(totalPixels);
+            const rawNoise = new Float32Array(totalPixels);
+            const rawChroma = new Float32Array(totalPixels);
+            const rawGrad = new Float32Array(totalPixels);
+            
+            const laplacian = [0, 1, 0, 1, -4, 1, 0, 1, 0];
+            const sobelX = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
+            const sobelY = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
+
+            // Helper: RGB to YCbCr (Chrominance is highly sensitive to AI edits)
+            function getCbCr(r, g, b) {
+                const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+                const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+                return { cb, cr };
+            }
+
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const idx = (y * width + x) * 4;
+                    const sIdx = y * width + x;
+
+                    // A. RGB ELA
+                    const diffR = Math.abs(orig[idx] - comp[idx]);
+                    const diffG = Math.abs(orig[idx+1] - comp[idx+1]);
+                    const diffB = Math.abs(orig[idx+2] - comp[idx+2]);
+                    const maxDiff = Math.max(diffR, diffG, diffB) * 15; // fixed scale for normalization
+                    elaData[idx] = maxDiff; elaData[idx+1] = maxDiff; elaData[idx+2] = maxDiff; elaData[idx+3] = 255;
+                    rawEla[sIdx] = maxDiff;
+
+                    // B. Chroma ELA (CbCr differences)
+                    const origC = getCbCr(orig[idx], orig[idx+1], orig[idx+2]);
+                    const compC = getCbCr(comp[idx], comp[idx+1], comp[idx+2]);
+                    const chromaDiff = Math.sqrt(Math.pow(origC.cb - compC.cb, 2) + Math.pow(origC.cr - compC.cr, 2)) * 20;
+                    chromaData[idx] = chromaDiff; chromaData[idx+1] = 0; chromaData[idx+2] = chromaDiff; chromaData[idx+3] = 255; // Magenta map
+                    rawChroma[sIdx] = chromaDiff;
+
+                    // Convolution Vectors
+                    let lSum = 0, sx = 0, sy = 0, kIdx = 0;
+                    for (let ky = -1; ky <= 1; ky++) {
+                        for (let kx = -1; kx <= 1; kx++) {
+                            const pIdx = ((y + ky) * width + (x + kx)) * 4;
+                            const lum = 0.299 * orig[pIdx] + 0.587 * orig[pIdx+1] + 0.114 * orig[pIdx+2]; // Luminance Y
+                            lSum += lum * laplacian[kIdx];
+                            sx += lum * sobelX[kIdx];
+                            sy += lum * sobelY[kIdx];
+                            kIdx++;
+                        }
+                    }
+
+                    // C. Laplacian High-Frequency (PRNU Proxy)
+                    const noiseMag = Math.abs(lSum);
+                    noiseData[idx] = 0; noiseData[idx+1] = Math.min(255, noiseMag); noiseData[idx+2] = 0; noiseData[idx+3] = 255;
+                    rawNoise[sIdx] = noiseMag;
+
+                    // D. Sobel Gradient Magnitude
+                    rawGrad[sIdx] = Math.sqrt(sx*sx + sy*sy);
+                }
+            }
+
+            // Grid Aggregation & Standard Deviation (Z-Scoring)
+            const cols = Math.floor(width / gridSize);
+            const rows = Math.floor(height / gridSize);
+            const gridData = [];
+            let sumEla = 0, sumChroma = 0, sumNoise = 0, sumGrad = 0;
+
+            for (let r = 0; r < rows; r++) {
+                gridData[r] = [];
+                for (let c = 0; c < cols; c++) {
+                    let sE = 0, sC = 0, sN = 0, sG = 0, count = 0;
+                    for (let y = r * gridSize; y < (r + 1) * gridSize; y++) {
+                        for (let x = c * gridSize; x < (c + 1) * gridSize; x++) {
+                            const i = y * width + x;
+                            sE += rawEla[i]; sC += rawChroma[i]; sN += rawNoise[i]; sG += rawGrad[i]; count++;
+                        }
+                    }
+                    const cell = { mEla: sE/count, mChroma: sC/count, mNoise: sN/count, mGrad: sG/count, c, r };
+                    gridData[r][c] = cell;
+                    sumEla += cell.mEla; sumChroma += cell.mChroma; sumNoise += cell.mNoise; sumGrad += cell.mGrad;
+                }
+            }
+
+            const N = cols * rows;
+            const meanE = sumEla/N, meanC = sumChroma/N, meanN = sumNoise/N, meanG = sumGrad/N;
+            let vE = 0, vC = 0, vN = 0, vG = 0;
+
+            for(let r=0; r<rows; r++) {
+                for(let c=0; c<cols; c++) {
+                    const cell = gridData[r][c];
+                    vE += Math.pow(cell.mEla - meanE, 2); vC += Math.pow(cell.mChroma - meanC, 2);
+                    vN += Math.pow(cell.mNoise - meanN, 2); vG += Math.pow(cell.mGrad - meanG, 2);
+                }
+            }
+
+            const sdE = Math.sqrt(vE/N) || 1, sdC = Math.sqrt(vC/N) || 1;
+            const sdN = Math.sqrt(vN/N) || 1, sdG = Math.sqrt(vG/N) || 1;
+
+            const anomalies = [];
+            for(let r=0; r<rows; r++) {
+                for(let c=0; c<cols; c++) {
+                    const cell = gridData[r][c];
+                    // Z-Scores
+                    cell.zEla = (cell.mEla - meanE) / sdE;
+                    cell.zChroma = (cell.mChroma - meanC) / sdC;
+                    cell.zNoise = (meanN - cell.mNoise) / sdN; // Low noise is bad
+                    cell.zGrad = Math.abs((cell.mGrad - meanG) / sdG); // Any deviation in gradient is bad
+                    
+                    cell.score = (cell.zEla * 0.3) + (cell.zChroma * 0.4) + (cell.zNoise * 0.2) + (cell.zGrad * 0.1);
+                    if (cell.score > zThreshold) anomalies.push(cell);
+                }
+            }
+
+            self.postMessage({ elaData, noiseData, chromaData, anomalies, gridData, globalNoise: meanN });
+        };
+        `;
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        const worker = new Worker(URL.createObjectURL(blob));
+
+        // --- 2. UI & MAIN THREAD LOGIC ---
+        const UI = {
+            drop: document.getElementById('drop-zone'), file: document.getElementById('file-input'),
+            work: document.getElementById('workspace'), btn: document.getElementById('btn-analyze'),
+            repPanel: document.getElementById('report-panel'), 
+            cOrig: document.getElementById('canvas-original'), cEla: document.getElementById('canvas-ela'),
+            cNoise: document.getElementById('canvas-noise'), cChroma: document.getElementById('canvas-chroma'),
+            cGrid: document.getElementById('canvas-grid'), tooltip: document.getElementById('tooltip')
+        };
+        const ctx = {
+            orig: UI.cOrig.getContext('2d', {willReadFrequently:true}), ela: UI.cEla.getContext('2d'),
+            noise: UI.cNoise.getContext('2d'), chroma: UI.cChroma.getContext('2d'), grid: UI.cGrid.getContext('2d')
+        };
+
+        let imgW = 0, imgH = 0, currentGridData = null;
+        let fileHasExif = false;
+        const MAX_DIM = 1200;
+
+        // Visual Toggles
+        const bindToggle = (id, canvas) => document.getElementById(id).addEventListener('change', e => canvas.style.opacity = e.target.checked ? 1 : 0);
+        bindToggle('show-ela', UI.cEla); bindToggle('show-noise', UI.cNoise); bindToggle('show-chroma', UI.cChroma); bindToggle('show-grid', UI.cGrid);
+        document.getElementById('z-threshold').addEventListener('input', e => document.getElementById('val-z').innerText = parseFloat(e.target.value).toFixed(1) + 'σ');
+
+        // File handling
+        UI.drop.addEventListener('click', () => UI.file.click());
+        UI.drop.addEventListener('dragover', e => { e.preventDefault(); UI.drop.classList.add('dragover'); });
+        UI.drop.addEventListener('dragleave', () => UI.drop.classList.remove('dragover'));
+        UI.drop.addEventListener('drop', e => { e.preventDefault(); UI.drop.classList.remove('dragover'); handleFile(e.dataTransfer.files[0]); });
+        UI.file.addEventListener('change', e => handleFile(e.target.files[0]));
+
+        function handleFile(file) {
+            if(!file) return;
+            checkExif(file); // Async heuristic
+            
+            const reader = new FileReader();
+            reader.onload = e => {
+                const img = new Image();
+                img.onload = () => {
+                    const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+                    imgW = Math.floor(img.width * scale); imgH = Math.floor(img.height * scale);
+
+                    [UI.cOrig, UI.cEla, UI.cNoise, UI.cChroma, UI.cGrid].forEach(c => { c.width = imgW; c.height = imgH; });
+                    ctx.orig.drawImage(img, 0, 0, imgW, imgH);
+                    
+                    UI.work.style.display = 'block'; UI.work.style.width = imgW + 'px'; UI.work.style.height = imgH + 'px';
+                    ctx.ela.clearRect(0,0,imgW,imgH); ctx.noise.clearRect(0,0,imgW,imgH); ctx.chroma.clearRect(0,0,imgW,imgH); ctx.grid.clearRect(0,0,imgW,imgH);
+                    UI.btn.disabled = false; UI.repPanel.style.display = 'none'; currentGridData = null;
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Basic JPEG Header Scanner (Looks for APP1 EXIF marker typically missing in Midjourney/DALL-E)
+        function checkExif(file) {
+            if(file.type !== "image/jpeg") { fileHasExif = null; return; }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const view = new DataView(e.target.result);
+                if (view.getUint16(0, false) !== 0xFFD8) return; // Not JPEG
+                let offset = 2;
+                while (offset < view.byteLength) {
+                    const marker = view.getUint16(offset, false);
+                    if (marker === 0xFFE1) { fileHasExif = true; return; } // Found APP1/EXIF
+                    offset += 2 + view.getUint16(offset + 2, false);
+                }
+                fileHasExif = false;
+            };
+            reader.readAsArrayBuffer(file.slice(0, 65536)); // Read first 64kb
+        }
+
+        UI.btn.addEventListener('click', () => {
+            UI.btn.disabled = true; UI.btn.innerText = "Analyzing Matrix..."; UI.repPanel.style.display = 'block';
+            document.getElementById('rep-exif').className = 'badge'; document.getElementById('rep-exif').innerText = 'Analyzing...';
+            
+            const origData = ctx.orig.getImageData(0, 0, imgW, imgH).data;
+            const compressedUrl = UI.cOrig.toDataURL('image/jpeg', 0.85); 
+            
+            const imgComp = new Image();
+            imgComp.onload = () => {
+                const tempCanvas = document.createElement('canvas'); tempCanvas.width = imgW; tempCanvas.height = imgH;
+                const tempCtx = tempCanvas.getContext('2d'); tempCtx.drawImage(imgComp, 0, 0, imgW, imgH);
+                
+                worker.postMessage({
+                    orig: origData, comp: tempCtx.getImageData(0, 0, imgW, imgH).data,
+                    width: imgW, height: imgH,
+                    gridSize: parseInt(document.getElementById('grid-size').value),
+                    zThreshold: parseFloat(document.getElementById('z-threshold').value)
+                });
+            };
+            imgComp.src = compressedUrl;
+        });
+
+        worker.onmessage = function(e) {
+            const { elaData, noiseData, chromaData, anomalies, gridData, globalNoise } = e.data;
+            currentGridData = gridData; // Store for tooltip interaction
+            
+            ctx.ela.putImageData(new ImageData(elaData, imgW, imgH), 0, 0);
+            ctx.noise.putImageData(new ImageData(noiseData, imgW, imgH), 0, 0);
+            ctx.chroma.putImageData(new ImageData(chromaData, imgW, imgH), 0, 0);
+
+            // Draw Anomalies
+            ctx.grid.clearRect(0, 0, imgW, imgH);
+            const gSize = parseInt(document.getElementById('grid-size').value);
+            const zThresh = parseFloat(document.getElementById('z-threshold').value);
+
+            anomalies.forEach(a => {
+                const opacity = Math.min(0.8, (a.score - zThresh + 0.2));
+                ctx.grid.fillStyle = `rgba(239, 68, 68, ${opacity * 0.5})`;
+                ctx.grid.fillRect(a.c * gSize, a.r * gSize, gSize, gSize);
+                ctx.grid.strokeStyle = `rgba(239, 68, 68, 0.9)`;
+                ctx.grid.lineWidth = 1.5;
+                ctx.grid.strokeRect(a.c * gSize, a.r * gSize, gSize, gSize);
+            });
+
+            // Update Global Report Panel
+            const elExif = document.getElementById('rep-exif');
+            if(fileHasExif === true) { elExif.innerText = "Present (Natural)"; elExif.className = "badge safe"; }
+            else if(fileHasExif === false) { elExif.innerText = "Missing/Stripped"; elExif.className = "badge alert"; }
+            else { elExif.innerText = "N/A (Not JPEG)"; elExif.className = "badge warn"; }
+
+            const elNoise = document.getElementById('rep-noise');
+            if (globalNoise < 5) { elNoise.innerText = "Unnaturally Smooth"; elNoise.className = "badge alert"; }
+            else { elNoise.innerText = "Natural Texture"; elNoise.className = "badge safe"; }
+
+            document.getElementById('rep-anom').innerText = anomalies.length;
+
+            const elVerdict = document.getElementById('rep-verdict');
+            if (fileHasExif === false && globalNoise < 5) {
+                elVerdict.innerText = "Likely 100% AI Generated"; elVerdict.className = "badge alert";
+            } else if (anomalies.length > 3) {
+                elVerdict.innerText = "Localized AI Edits Detected"; elVerdict.className = "badge alert";
+            } else {
+                elVerdict.innerText = "No Strong Mathematical Anomalies"; elVerdict.className = "badge safe";
+            }
+
+            UI.btn.disabled = false; UI.btn.innerText = "Execute Deep Scan";
+        };
+
+        // --- 3. INTERACTIVE DATA PROBING (Hover Tooltip) ---
+        UI.cOrig.addEventListener('mousemove', (e) => {
+            if(!currentGridData) return;
+            
+            // Map CSS pixels (scaled) to Canvas pixels (actual data)
+            const rect = UI.cOrig.getBoundingClientRect();
+            const scaleX = UI.cOrig.width / rect.width;
+            const scaleY = UI.cOrig.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            const gSize = parseInt(document.getElementById('grid-size').value);
+            const c = Math.floor(x / gSize);
+            const r = Math.floor(y / gSize);
+
+            if(currentGridData[r] && currentGridData[r][c]) {
+                const cell = currentGridData[r][c];
+                UI.tooltip.style.display = 'block';
+                UI.tooltip.style.left = e.clientX + 'px';
+                UI.tooltip.style.top = e.clientY + 'px';
+
+                document.getElementById('tt-ela').innerText = cell.zEla.toFixed(2) + 'σ';
+                document.getElementById('tt-chroma').innerText = cell.zChroma.toFixed(2) + 'σ';
+                document.getElementById('tt-noise').innerText = cell.zNoise.toFixed(2) + 'σ';
+                document.getElementById('tt-grad').innerText = cell.zGrad.toFixed(2) + 'σ';
+
+                const zThresh = parseFloat(document.getElementById('z-threshold').value);
+                document.getElementById('tt-warn').style.display = cell.score > zThresh ? 'block' : 'none';
+            }
+        });
+
+        UI.cOrig.addEventListener('mouseleave', () => UI.tooltip.style.display = 'none');
+    </script>
+</body>
+</html>
